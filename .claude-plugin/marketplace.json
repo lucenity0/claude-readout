@@ -10,7 +10,7 @@
       "name": "readout",
       "source": "./",
       "description": "Shows which files Read opened, and what each search looked for, on the folded tool line",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "license": "MIT",
       "keywords": ["claude-code", "claude-code-plugin", "read", "transcript", "tui", "function-hooks"],
       "author": {

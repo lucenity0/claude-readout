@@ -1,7 +1,7 @@
 {
   "name": "readout",
-  "version": "0.1.0",
-  "description": "Shows which files Read opened, and what each search looked for, on the folded tool line",
+  "version": "0.2.0",
+  "description": "Shows which files Read opened, which lines, and what each search looked for, on the folded tool line",
   "author": {
     "name": "Nafees S",
     "url": "https://github.com/lucenity0"
@@ -14,8 +14,28 @@
       "type": "string",
       "title": "Mode",
       "description": "inline keeps the folded line and adds the file names and patterns to it. expand unfolds the group into one row per call.",
-      "options": ["inline", "expand"],
+      "options": [
+        "inline",
+        "expand"
+      ],
       "default": "inline"
+    },
+    "links": {
+      "type": "string",
+      "title": "Clickable paths",
+      "description": "auto makes paths cmd-clickable in terminals known to draw links (iTerm2, Warp, Ghostty, WezTerm, kitty, VS Code). on and off force it. Terminals without link support print the URL beside each name, so leave those off.",
+      "options": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "default": "auto"
+    },
+    "tint": {
+      "type": "string",
+      "title": "Tool row background",
+      "description": "auto puts a quiet band behind tool rows so they stand apart from Claude's replies, matched to a light or dark theme. off removes it, or give your own color such as #1d2128.",
+      "default": "auto"
     }
   }
 }

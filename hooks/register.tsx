@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import { groupLines, shortReason } from './format'
+import { groupLines, shortReason, tintFor, wantsLinks } from './format'
+import type { Item } from './format'
 
 const reasons = atom({ plugin: 'readout', key: 'reasons' } as const, {})
 
@@ -11,14 +12,37 @@ const KEPT_REASONS = 200
 
 export const register: Register = (on, options) => {
   const isExpandMode = options.mode === 'expand'
+  let theme = 'dark'
+
+  on('session.start', async ($, e, next) => {
+    const row = (await $.config.list()).find(each => each.key === 'theme')
+    if (typeof row?.value === 'string') theme = row.value
+    return next(e)
+  })
+
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    const drawn = await next(e)
+    const tint = e.surface === 'terminal' ? tintFor(options.tint, theme) : undefined
+    if (tint === undefined) return drawn
+    const { Box } = $.ui.resolve(e)
+    return <Box flexDirection="column" backgroundColor={tint.band}>{drawn}</Box>
+  })
+
+  on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
+    const drawn = await next(e)
+    const tint = e.surface === 'terminal' ? tintFor(options.tint, theme) : undefined
+    if (tint === undefined) return drawn
+    const { Box } = $.ui.resolve(e)
+    return <Box flexDirection="column" backgroundColor={tint.band}>{drawn}</Box>
+  })
 
   on('tool.call', async ($, e, next) => {
     const ran = await next(e)
     const isDenied = ran.deny !== undefined
-    const text = ran.deny ?? (ran.isError === true ? ran.text : undefined)
-    if (text === undefined) return ran
+    const message = ran.deny ?? (ran.isError === true ? ran.text : undefined)
+    if (message === undefined) return ran
 
-    const reason = shortReason(text, isDenied)
+    const reason = shortReason(message, isDenied)
     await update($, reasons, current => {
       const kept = Object.entries(current).slice(-(KEPT_REASONS - 1))
       return { ...Object.fromEntries(kept), [e.tool_use_id]: reason }
@@ -40,40 +64,71 @@ export const register: Register = (on, options) => {
         tool: call.tool,
         input: call.input,
         isErrored: call.isErrored || call.isInterrupted,
+        isRunning: call.isRunning,
         ...(reason === undefined ? {} : { reason }),
       }
     })
 
     const nameWidth = Math.max(...calls.map(call => call.tool.length))
-    const room = Math.max(12, (e.viewport?.columns ?? 80) - nameWidth - 6)
+    const gutter = nameWidth + 4
+    const room = Math.max(12, (e.viewport?.columns ?? 80) - gutter - 2)
     const lines = groupLines(calls, room, cwd, home)
     if (lines === undefined) return next(e)
 
-    const { Box, Text } = $.ui.resolve(e)
-    const isRunning = e.props.calls.some(call => call.isRunning)
+    const { Box, Text, Link } = $.ui.resolve(e)
+    const hasLinks =
+      e.surface === 'terminal' &&
+      wantsLinks(options.links, await $.env.get('TERM_PROGRAM'), await $.env.get('TERM'))
+    const isRunning = calls.some(call => call.isRunning)
     const isFailed = calls.length > 0 && calls.every(call => call.isErrored)
     const bullet = isRunning ? { dimColor: true } : { color: isFailed ? FAILED : DONE }
+    const tint = e.surface === 'terminal' ? tintFor(options.tint, theme) : undefined
+    const band = tint === undefined ? {} : { backgroundColor: tint.band }
+    const ink = tint === undefined ? {} : { color: tint.ink }
+
+    const drawItem = (item: Item) => {
+      const name =
+        hasLinks && item.path !== undefined ? <Link href={`file://${encodeURI(item.path)}`}>{item.name}</Link> : item.name
+      const style = item.isErrored ? { color: FAILED } : item.isRunning ? { dimColor: true } : ink
+      return (
+        <Text {...style}>
+          {name}
+          {item.count > 1 ? <Text dimColor>{` ×${item.count}`}</Text> : ''}
+          {item.reason === undefined ? '' : `  ${item.reason}`}
+        </Text>
+      )
+    }
 
     return (
-      <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={1} {...band}>
         {lines.map((line, index) => (
-          <Text wrap="truncate-end">
-            {index === 0 ? (
-              <Text {...bullet}>{'● '}</Text>
-            ) : (
-              '  '
-            )}
-            <Text bold>{line.tool.padEnd(nameWidth)}</Text>
-            {'  '}
-            {line.items.map((item, at) => (
+          <Box flexDirection="row">
+            <Box width={gutter} flexShrink={0}>
               <Text>
-                {at === 0 ? '' : line.separator}
-                {item.isErrored ? <Text color={FAILED}>{item.text}</Text> : item.text}
-                {item.reason === undefined ? '' : <Text color={FAILED}>{`  ${item.reason}`}</Text>}
+                {index === 0 ? <Text {...bullet}>{'● '}</Text> : '  '}
+                <Text bold {...ink}>{(line.isFirstOfTool ? line.tool : '').padEnd(nameWidth)}</Text>
+                {'  '}
               </Text>
-            ))}
-            {line.more > 0 ? <Text dimColor>{` +${line.more} more`}</Text> : ''}
-          </Text>
+            </Box>
+            <Box flexGrow={1} flexShrink={1}>
+              <Text wrap={line.wraps ? 'wrap' : 'truncate-end'}>
+                {line.entries.map((entry, at) => (
+                  <Text>
+                    {at === 0 ? '' : ', '}
+                    {entry.folder === '' ? '' : `${entry.folder}{`}
+                    {entry.items.map((item, i) => (
+                      <Text>
+                        {i === 0 ? '' : ', '}
+                        {drawItem(item)}
+                      </Text>
+                    ))}
+                    {entry.folder === '' ? '' : '}'}
+                  </Text>
+                ))}
+                {line.more > 0 ? <Text dimColor>{` +${line.more} more`}</Text> : ''}
+              </Text>
+            </Box>
+          </Box>
         ))}
       </Box>
     )

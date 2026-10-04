@@ -1,7 +1,7 @@
 // Renders the README's animation with the mod's own layout code: one made-up
 // turn, drawn twice, as Claude Code folds it and as readout draws it.
 // Run: node --experimental-strip-types assets/demo.mts
-import { groupLines } from '../hooks/format.ts'
+import { groupLines, tintFor } from '../hooks/format.ts'
 import type { Call, Item, Line } from '../hooks/format.ts'
 import { writeFileSync } from 'node:fs'
 
@@ -12,6 +12,9 @@ const CWD = '/work/app'
 const FONT = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 const ROW = 19
 const WIDTH = 760
+const TINT = tintFor('auto', 'dark')!
+/** Marks a row readout draws on its band. */
+const BAND = '\u0001'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -36,7 +39,7 @@ function callsAt(tick: number): Call[] {
 }
 
 function item(entry: Item): string {
-  const cls = entry.isRunning ? ' class="dim"' : ''
+  const cls = entry.isRunning ? ' class="run"' : ''
   const count = entry.count > 1 ? `<tspan class="dim"> ×${entry.count}</tspan>` : ''
   return `<tspan${cls}>${esc(entry.name)}</tspan>${count}`
 }
@@ -47,7 +50,7 @@ function readoutRows(calls: Call[]): string[] {
   const nameWidth = Math.max(...calls.map(call => call.tool.length))
   const isRunning = calls.some(call => call.isRunning)
   return lines.map((line, index) => {
-    const bullet = index === 0 ? `<tspan class="${isRunning ? 'dim' : 'grn'}">●</tspan> ` : '  '
+    const bullet = index === 0 ? `<tspan class="${isRunning ? 'run' : 'grn'}">●</tspan> ` : '  '
     const name = `<tspan class="b">${(line.isFirstOfTool ? line.tool : '').padEnd(nameWidth)}</tspan>  `
     const entries = line.entries
       .map(entry => {
@@ -55,7 +58,7 @@ function readoutRows(calls: Call[]): string[] {
         return entry.folder === '' ? items : `${esc(entry.folder)}{${items}}`
       })
       .join(', ')
-    return bullet + name + entries
+    return BAND + bullet + name + entries
   })
 }
 
@@ -79,11 +82,17 @@ function panel(tick: number, rows: (calls: Call[]) => string[]): string[] {
   return out
 }
 
+/** One row of text, on readout's band when it is one of readout's rows. */
+function drawRow(row: string, y: number): string {
+  if (!row.startsWith(BAND)) return `<text x="24" y="${y}">${row}</text>`
+  return `<rect x="14" y="${y - 14}" width="${WIDTH - 28}" height="${ROW}" fill="${TINT.band}"/><text class="ink" x="24" y="${y}">${row.slice(1)}</text>`
+}
+
 function frames(top: number, rows: (calls: Call[]) => string[]): string {
   const still = process.env.STILL
   if (still !== undefined) {
     return panel(Number(still), rows)
-      .map((row, index) => `<text x="24" y="${top + index * ROW}">${row}</text>`)
+      .map((row, index) => drawRow(row, top + index * ROW))
       .join('')
   }
   const rules: string[] = []
@@ -96,7 +105,7 @@ function frames(top: number, rows: (calls: Call[]) => string[]): string {
     const delay = -((TICKS - start) % TICKS) * FRAME_S
     const text = body
       .split('\n')
-      .map((row, index) => `<text x="24" y="${top + index * ROW}">${row}</text>`)
+      .map((row, index) => drawRow(row, top + index * ROW))
       .join('')
     groups.push(`<g style="opacity:0;animation:${id} ${TICKS * FRAME_S}s step-end ${delay.toFixed(2)}s infinite">${text}</g>`)
   }
@@ -116,16 +125,17 @@ const FIRST = 52
 const SECOND = FIRST + PANEL_ROWS * ROW + 46
 const HEIGHT = SECOND + PANEL_ROWS * ROW + 12
 
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" role="img" aria-label="The same turn twice: Claude Code folds six calls into Read 5 files, ran 1 shell command, while readout names each file as it is read, with line ranges, a repeat count and the grep command">
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" role="img" aria-label="The same turn twice: Claude Code folds six calls into Read 5 files, ran 1 shell command, while readout names each file as it is read, with line ranges, a repeat count and the grep command, on a quiet band in softer text">
 <style>
 text { font-family: ${FONT}; font-size: 12px; fill: #e6e6e6; white-space: pre; }
 .dim { fill: #8b8b8b; } .acc { fill: #d97757; } .grn { fill: #57ab5a; } .b { font-weight: 700; }
+.ink { fill: ${TINT.ink}; } .run { fill: #62666e; } .ink .dim { fill: #6e727a; }
 .title { font-size: 11px; fill: #9a9a9a; letter-spacing: 0.04em; }
 </style>
-<rect width="${WIDTH}" height="${HEIGHT}" rx="10" fill="#1b1b1d"/>
+<rect width="${WIDTH}" height="${HEIGHT}" rx="10" fill="#0c0c0e"/>
 <text class="title" x="24" y="${FIRST - 22}">claude code</text>
 ${frames(FIRST, calls => [foldedRow(calls)])}
-<line x1="24" x2="${WIDTH - 24}" y1="${SECOND - 40}" y2="${SECOND - 40}" stroke="#333" />
+<line x1="24" x2="${WIDTH - 24}" y1="${SECOND - 40}" y2="${SECOND - 40}" stroke="#2a2a2e" />
 <text class="title" x="24" y="${SECOND - 22}">with readout</text>
 ${frames(SECOND, readoutRows)}
 </svg>
